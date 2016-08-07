@@ -57,7 +57,6 @@ class Autoencoder():
     f = tf.float32
     #batch size images, and the serialized input data
     s.inp = tf.placeholder(tf.float32, shape=(None, s.img_size))
-    print(tf.shape(s.inp))    
     ac_fun = tf.nn.softplus
     s.test_inp = tf.identity(s.inp)
     #weights for encoder 
@@ -81,20 +80,20 @@ class Autoencoder():
     #mu is mean of gaussian
     #sigma is log standard deviation of the gaussian (? why lg?)
     #ac_fun taken from https://jmetzen.github.io/2015-11-27/vae.html
-    #s.log_sig_sq =tf.add(tf.matmul(s.eh2, s.enc["xsig"]), s.enc["xsigb"])
-    #s.mu =tf.add(tf.matmul(s.eh2,s.enc["xmu"]), s.enc["xmub"])
+    s.ln_sigma_sq =tf.add(tf.matmul(s.eh2, s.enc["xsig"]), s.enc["xsigb"])
+    s.mu =tf.add(tf.matmul(s.eh2, s.enc["xmu"]), s.enc["xmub"])
     
     #this randomness helps to make the prob model work 
     #it reduces the information encoded in the model (reduce overfitting)
-    #s.eps = tf.random_normal((s.bs, s.encoded_size ), 0, 1, dtype=f)
+    s.eps = tf.random_normal((s.bs, s.encoded_size ), 0, 1, dtype=f)
     
     #Now we sample from our latent space (randomness comes from eps
     # z = mu + sigma*epsilon
     # (?why exp and then sqrt is that to turn it back into sigma?)
     #NOTE - tf.mul vs tf.matmul
     
-    #s.encoded = tf.add(s.mu, tf.mul(tf.sqrt(tf.exp(s.log_sig_sq)), s.eps))
-    s.encoded =  ac_fun(tf.add(tf.matmul(s.eh2, s.enc["xmu"]), s.enc["xmub"]) )
+    s.encoded = tf.add(s.mu, tf.mul(tf.sqrt(tf.exp(s.ln_sigma_sq)), s.eps))
+    #s.encoded =  ac_fun(tf.add(tf.matmul(s.eh2, s.enc["xmu"]), s.enc["xmub"]) )
 
 
 
@@ -111,7 +110,8 @@ class Autoencoder():
     s.dh2 = ac_fun(tf.add(tf.matmul(s.dh1, s.dec["h2"]), s.dec["h2b"]))
     
     #output image
-    s.output =(tf.add(tf.matmul(s.dh2, s.dec["out"]), s.dec["outb"]))
+    #sigmoid here?
+    s.output =tf.nn.sigmoid((tf.add(tf.matmul(s.dh2, s.dec["out"]), s.dec["outb"])))
     
     #TODO- Undersand this
     # The loss is composed of two terms:
@@ -123,6 +123,7 @@ class Autoencoder():
     #     is given.
     # Adding 1e-10 to avoid evaluatio of log(0.0)
     #s.reconstr_loss = -tf.reduce_sum((s.inp * tf.log(1e-10 + s.output)) + ((1-s.inp) * tf.log(1e-10 + 1 - s.output)), 1)
+    s.reconstr_loss = -tf.reduce_sum(s.inp * tf.log(1e-10 + s.output) + (1-s.inp) * tf.log(1e-10 + 1 - s.output),1)
     # 2.) The latent loss, which is defined as the Kullback Leibler divergence 
    ##    between the distribution in latent space induced by the encoder on 
     #     the data and some prior. This acts as a kind of regularizer.
@@ -132,18 +133,21 @@ class Autoencoder():
 
     #s.latent_loss = -0.5 * tf.reduce_sum(1 + s.log_sig - tf.square(s.mu) - tf.exp(s.log_sig), 1)
     #s.kl_divergence = -0.5 * tf.reduce_sum(1+ s.log_sig_sq - tf.square(s.mu) - tf.exp(s.log_sig_sq), 1) 
+    s.latent_loss = -0.5 * tf.reduce_sum(1 + s.ln_sigma_sq - tf.square(s.mu)- tf.exp(s.ln_sigma_sq), 1)
 
-    s.cost = 0.5* tf.reduce_mean(tf.pow(s.inp - s.output, 2)) 
+    #s.cost = 0.5* tf.reduce_mean(tf.pow(s.inp - s.output, 2)) 
     #s.cost = tf.reduce_mean(s.kl_divergence + s.reconstr_loss)   # average over batch
-    
+    s.cost = tf.reduce_mean(s.reconstr_loss + s.latent_loss)   # average over batch   
+
+ 
     #learning rate
     #s.lr = tf.Variable(0.0, trainable=False)
     #tvars = tf.trainable_variables()
     ##grads, _ = tf.clip_by_global_norm(tf.gradients(s.cost, tvars), s.grad_clip)
     #note, optomizer.minimize also could work here
-    #s.optimizer = tf.train.AdamOptimizer(s.learning_rate)
-    #s.train_op = s.optimizer.apply_gradients(zip(grads, tvars)) 
     s.optimizer = tf.train.AdamOptimizer(learning_rate=s.learning_rate).minimize(s.cost)
+    #s.train_op = s.optimizer.apply_gradients(zip(grads, tvars)) 
+    #s.optimizer = tf.train.AdamOptimizer(learning_rate=s.learning_rate).minimize(s.cost)
  
   def train(s):
 
@@ -165,11 +169,14 @@ class Autoencoder():
           start = time.time()   
           imgs = s.dataset.readn(s.bs)
           feed = {s.inp:imgs}
-          _, train_loss = sess.run([s.optimizer, s.cost], feed)
+          _, train_loss, hidden = sess.run([s.optimizer, s.cost, s.ln_sigma_sq], feed)
           end = time.time()
           print("batch: {}, epoch: {}, train_loss = {:.3f}, time/batch = {:.3f}" \
                    .format(e * s.epoch_size + n,
                          e, train_loss, end - start))
+
+          print hidden.shape
+
  
   def sample(s):
     '''samples from the latent space''' 
