@@ -39,27 +39,6 @@ class ImgDataset():
       s.pointer = 0 #index for reading from the dataset
 
 
-  
-   
-  
-  ''' 
-  def extract_labels(filename, one_hot=False, num_classes=10):
-    Extract the labels into a 1D uint8 numpy array [index]x
-    print('Extracting', filename)
-    with tf.gfile.Open(filename, 'rb') as  bytestream:
-      magic = _read32(bytestream)
-      if magic != 2049:
-        raise ValueError(
-            'Invalid magic number %d in MNIST label file: %s' %
-            (magic, filename))
-      num_items = _read32(bytestream)
-      buf = bytestream.read(num_items)
-      labels = np.frombuffer(buf, dtype=np.uint8)
-      if one_hot:
-        return dense_to_one_hot(labels, num_classes)
-      return labels
-  ''' 
-
   def readn(s,n):
     '''
     returns a numpy matrix of n X length dimensions 

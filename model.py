@@ -1,9 +1,10 @@
 import tensorflow as tf
 import numpy as np
+import scipy.special as scisp 
 import img_dataset as img
 import os
 import time
-
+import random
 
 
 import png
@@ -58,6 +59,19 @@ class Autoencoder():
     #batch size images, and the serialized input data
     s.inp = tf.placeholder(tf.float32, shape=(None, s.img_size))
     ac_fun = tf.nn.softplus
+    
+    
+    #TODO-
+    #Question:
+    #
+    #How do I format data before training them?
+    #this work seems to indicate that pre-formatting the data is very helpful
+    #(starting with this representation would have saved time)
+    # 
+    #Architecture:
+    #a wrapper class? which is responsible for managing interactions with the model
+    #a model class which establishes with tensorflow
+    #used to collect input images
     s.test_inp = tf.identity(s.inp)
     #weights for encoder 
     s.enc= {
@@ -80,7 +94,7 @@ class Autoencoder():
     #mu is mean of gaussian
     #sigma is log standard deviation of the gaussian (? why lg?)
     #ac_fun taken from https://jmetzen.github.io/2015-11-27/vae.html
-    s.ln_sigma_sq =tf.add(tf.matmul(s.eh2, s.enc["xsig"]), s.enc["xsigb"])
+    s.ln_sigma_sq = tf.add(tf.matmul(s.eh2, s.enc["xsig"]), s.enc["xsigb"])
     s.mu =tf.add(tf.matmul(s.eh2, s.enc["xmu"]), s.enc["xmub"])
     
     #this randomness helps to make the prob model work 
@@ -111,6 +125,8 @@ class Autoencoder():
     
     #output image
     #sigmoid here?
+    #adding a sigmoid here makes the input and output of identical forms.
+    #is this valuable? 
     s.output =tf.nn.sigmoid((tf.add(tf.matmul(s.dh2, s.dec["out"]), s.dec["outb"])))
     
     #TODO- Undersand this
@@ -159,23 +175,22 @@ class Autoencoder():
       # saver.restore(sess, ckpt.model_checkpoint_path)
       for e in range(s.num_epochs):
         #sess.run(tf.assign(s.lr, s.learning_rate* s.decay_rate*e))
-        #TODO- link this to the dataset (gotta read/reshape)
         s.dataset.reset()    
          
         save_dir = os.path.join(s.save_dir, 'model.ckpt')
         saver.save(sess,save_dir, global_step = e) 
         print("saving to " +s.save_dir)
         for n in range(s.epoch_size):
-          start = time.time()   
-          imgs = s.dataset.readn(s.bs)
-          feed = {s.inp:imgs}
-          _, train_loss, hidden = sess.run([s.optimizer, s.cost, s.ln_sigma_sq], feed)
+          start = time.time()  
+          
+          #this clip is important to normalize the data before processing
+          feed = {s.inp: np.clip(s.dataset.readn(s.bs), 0, 1) }
+          _, train_loss, hidden = sess.run([s.optimizer, s.cost, s.reconstr_loss], feed)
           end = time.time()
           print("batch: {}, epoch: {}, train_loss = {:.3f}, time/batch = {:.3f}" \
                    .format(e * s.epoch_size + n,
                          e, train_loss, end - start))
 
-          print hidden.shape
 
  
   def sample(s):
@@ -191,12 +206,13 @@ class Autoencoder():
 
       if s.bs != 1 : 
         raise ValueError("can only sample from models with a batch size and sequence length of one" )
-
-      img = s.dataset.readn(1)
+      
+      burn = s.dataset.readn(random.randint(1, 100) )
+      img = np.clip(s.dataset.readn(1),0,1)
       feed = {s.inp:img}
       inp, output = sess.run([s.test_inp, s.output], feed)
-      i = np.clip(np.reshape(inp,(28,28)), 0,255).astype('uint8')
-      o = np.clip(np.reshape(output,(28,28)), 0, 255).astype('uint8')
+      i = np.multiply(255, np.reshape(inp,(28,28))).astype('uint8')
+      o = np.multiply(255, np.reshape(output,(28,28))).astype('uint8')
       
       png.from_array(i,'L').save('infile.png')
       png.from_array(o,'L').save('outfile.png')
